@@ -23,11 +23,21 @@ constexpr auto WORLD_HEIGHT = 20; // 20 * TILE_HEIGHT
 struct sTile{
 	int x;
 	int y;
+
+	// Constructor
+	sTile(int x_val = 0, int y_val = 0) : x(x_val), y(y_val) {}
 };
 
 sTile world[WORLD_WIDTH][WORLD_HEIGHT];
 
 Camera2D camera = { 0 };
+
+struct sEntity {
+	float x;
+	float y;
+};
+
+sEntity player;
 
 static void GameStartup() {
 	
@@ -45,22 +55,33 @@ static void GameStartup() {
 		}
 	}
 
-	camera.target = { 0,0 };
+	player.x = TILE_WIDTH * 3;
+	player.y = TILE_HEIGHT * 3;
+
+	camera.target = { player.x, player.y };
 	camera.offset = { (screenWidth / 2), (screenHeight / 2) };
 	camera.rotation = 0.0f;
 	camera.zoom = 3.0f;
 
 };
+
 static void GameUpdate() {
 	float wheel = GetMouseWheelMove();
 
 	if (wheel != 0) {
 		const float zoomIncrement = 0.125f;
 		camera.zoom += (wheel * zoomIncrement);
+		if (camera.zoom < 3.0f) {
+			camera.zoom = 3.0f;
+		}
+		if (camera.zoom > 8.0f) {
+			camera.zoom = 8.0f;
+		}
 	}
 
-	camera.target = { 0, 0 };
+	camera.target = { player.x, player.y };
 };
+
 static void GameRender() {
 
 	BeginMode2D(camera);
@@ -82,9 +103,21 @@ static void GameRender() {
 		}
 	}
 
+	Rectangle source = { (4 * TILE_WIDTH), (0 * TILE_HEIGHT), TILE_WIDTH, TILE_HEIGHT };
+	Rectangle dest = { (camera.target.x), (camera.target.y), TILE_WIDTH, TILE_HEIGHT };
+	Vector2 origin = { 0, 0 };
+	DrawTexturePro(textures[TEXTURE_TILEMAP], source, dest, origin, 0.0f, WHITE);
+
 	EndMode2D();
 
+	DrawRectangle(5, 5, 330, 120, Fade(SKYBLUE, 0.5f));
+	DrawRectangleLines(5, 5, 330, 120, BLUE);
+
+	DrawText(TextFormat("Camera Target: (%06.2f, %06.2f", camera.target.x, camera.target.y), 15, 10, 14, YELLOW);
+	DrawText(TextFormat("Camera Zoom: %06.2f", camera.zoom), 15, 30, 14, YELLOW);
+
 };
+
 static void GameShutdown() {
 
 	for (int i = 0; i < MAX_TEXTURES; i++) {
