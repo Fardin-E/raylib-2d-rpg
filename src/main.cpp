@@ -21,6 +21,25 @@ Texture2D textures[MAX_TEXTURES];
 constexpr int WORLD_WIDTH = 20; // 20 * TILE_WIDTH
 constexpr int WORLD_HEIGHT = 20; // 20 * TILE_HEIGHT
 
+#define MAX_SOUNDS 5
+enum sound_asset {
+	SOUND_FOOT_GRASS = 0,
+	SOUND_FOOT_STONE,
+	SOUND_ATTACK,
+	SOUND_DEATH,
+	SOUND_COINS
+};
+
+Sound sounds[MAX_SOUNDS];
+
+#define MAX_MUSIC 2
+enum music_asset {
+	MUSIC_LIGHT_AMBIENCE = 0,
+	MUSIC_DARK_AMBIENCE
+};
+
+Music music[MAX_MUSIC];
+
 enum tile_type {
 	TILE_TYPE_DIRT = 0,
 	TILE_TYPE_GRASS,
@@ -52,11 +71,37 @@ struct sEntity {
 	float x;
 	float y;
 	eZone zone;
+	bool isAlive;
+	bool isPassable;
+	int health;
+	int damage;
+	int money;
+	int experience;
 };
 
 sEntity player;
 sEntity dungeon_gate;
 sEntity orc;
+sEntity chest = { 0 };
+
+struct sTimer {
+	double startTime;
+	double lifeTime;
+	bool isActive;
+};
+
+void StartTimer(sTimer* timer, double lifetime) {
+	timer->startTime = GetTime();
+	timer->lifeTime = lifetime;
+};
+bool IsTimerDone(sTimer timer) {
+	return GetTime() - timer.startTime >= timer.lifeTime;
+};
+double GetElapsed(sTimer timer) {
+	return GetTime() - timer.startTime;
+};
+
+sTimer combatTextTimer;
 
 static void DrawTile(float pos_x, float pos_y, float texture_index_x, float texture_index_y) {
 	Rectangle source = { (TILE_WIDTH * texture_index_x), (TILE_HEIGHT * texture_index_y), TILE_WIDTH, TILE_HEIGHT };
@@ -86,42 +131,80 @@ static void GameStartup() {
 		}
 	}
 
+	// player initialization
 	player.x = TILE_WIDTH * 3;
 	player.y = TILE_HEIGHT * 3;
 	player.zone = ZONE_WORLD;
+	player.isAlive = true;
+	player.isPassable = false;
+	player.health = 100;
+	player.damage = 0;
+	player.money = 1000;
+	player.experience = 0;
+
 
 	// position of dungeon gate
 	dungeon_gate.x = TILE_WIDTH * 10;
 	dungeon_gate.y = TILE_HEIGHT * 10;
 	dungeon_gate.zone = ZONE_ALL;
 
+	// orc initialization
 	orc.x = TILE_WIDTH * 5;
 	orc.y = TILE_HEIGHT * 5;
 	orc.zone = ZONE_DUNGEON;
+	orc.isAlive = true;
+	orc.isPassable = false;
+	orc.health = 100;
+	orc.damage = 0;
+	orc.experience = GetRandomValue(10, 100);
+	
 
+	// camera initialization
 	camera.target = { player.x, player.y };
 	camera.offset = { (screenWidth / 2), (screenHeight / 2) };
 	camera.rotation = 0.0f;
 	camera.zoom = 3.0f;
 
+	sounds[SOUND_FOOT_GRASS] = LoadSound("assets/Grass1.wav");
+	sounds[SOUND_FOOT_STONE] = LoadSound("assets/Concrete1.wav");
+	sounds[SOUND_ATTACK] = LoadSound("assets/07_human_atk_sword_2.wav");
+	sounds[SOUND_DEATH] = LoadSound("assets/24_orc_death_spin.wav");
+	sounds[SOUND_COINS] = LoadSound("assets/handleCoins.ogg");
+
+	music[MUSIC_LIGHT_AMBIENCE] = LoadMusicStream("assets/light-ambience.mp3");
+	music[MUSIC_DARK_AMBIENCE] = LoadMusicStream("assets/dark-ambience.mp3");
+
+	PlayMusicStream(music[MUSIC_LIGHT_AMBIENCE]);
 };
 
 static void GameUpdate() {
 
+	if (player.zone == ZONE_WORLD) {
+		UpdateMusicStream(music[MUSIC_LIGHT_AMBIENCE]);
+	}
+	else if (player.zone == ZONE_DUNGEON) {
+		UpdateMusicStream(music[MUSIC_DARK_AMBIENCE]);
+	}
+
 	float x = player.x;
 	float y = player.y;
+	bool hasKeyBeenPressed = false;
 
 	if (IsKeyPressed(KEY_LEFT)) {
 		x -= 1 * TILE_WIDTH;
+		hasKeyBeenPressed = true;
 	}
 	else if (IsKeyPressed(KEY_RIGHT)) {
 		x += 1 * TILE_WIDTH;
+		hasKeyBeenPressed = true;
 	}
 	else if (IsKeyPressed(KEY_UP)) {
 		y -= 1 * TILE_HEIGHT;
+		hasKeyBeenPressed = true;
 	}
 	else if (IsKeyPressed(KEY_DOWN)) {
 		y += 1 * TILE_HEIGHT;
+		hasKeyBeenPressed = true;
 	}
 
 	float wheel = GetMouseWheelMove();
@@ -137,10 +220,50 @@ static void GameUpdate() {
 		}
 	}
 
-	player.x = x;
-	player.y = y;
+	// check for orc collision
+	if (player.zone == orc.zone &&
+		orc.isAlive && orc.x == x && orc.y == y) {
+		int damage = GetRandomValue(2, 20); // 2d10
+		orc.health -= damage;
+		orc.damage = damage;
 
-	camera.target = { player.x, player.y };
+		if (!combatTextTimer.isActive) {
+			combatTextTimer.isActive = true;
+			StartTimer(&combatTextTimer, 0.50);
+		}
+
+		if (orc.health < 0) {
+			PlaySound(sounds[SOUND_DEATH]);
+			//TODO: dead!
+			orc.isAlive = false;
+			player.experience += orc.experience;
+
+			chest.isAlive = true;
+			chest.x = orc.x;
+			chest.y = orc.y;
+			chest.zone = orc.zone;
+			chest.money = GetRandomValue(10, 100);
+		}
+		else {
+			PlaySound(sounds[SOUND_ATTACK]);
+		}
+	}
+	else {
+
+		if (hasKeyBeenPressed) {
+			if (player.zone == ZONE_WORLD) {
+				PlaySound(sounds[SOUND_FOOT_GRASS]);
+			}
+			else if (player.zone == ZONE_DUNGEON) {
+				PlaySound(sounds[SOUND_FOOT_STONE]);
+			}
+		}
+
+		player.x = x;
+		player.y = y;
+		camera.target = { player.x, player.y };
+	}
+
 
 	if (IsKeyPressed(KEY_E)) {
 		if (player.x == dungeon_gate.x &&
@@ -148,11 +271,29 @@ static void GameUpdate() {
 			//enter dungeon
 			if (player.zone == ZONE_WORLD) {
 				player.zone = ZONE_DUNGEON;
+				StopMusicStream(music[MUSIC_LIGHT_AMBIENCE]);
+				PlayMusicStream(music[MUSIC_DARK_AMBIENCE]);
 			}
 			else if (player.zone == ZONE_DUNGEON) {
 				player.zone = ZONE_WORLD;
+				StopMusicStream(music[MUSIC_DARK_AMBIENCE]);
+				PlayMusicStream(music[MUSIC_LIGHT_AMBIENCE]);
 			}
 		}
+	}
+
+	if (IsKeyPressed(KEY_G)) {
+		if (player.x == chest.x &&
+			player.y == chest.y) {
+			
+			chest.isAlive = false;
+			player.money += chest.money;
+			PlaySound(sounds[SOUND_COINS]);
+		}
+	}
+
+	if (IsTimerDone(combatTextTimer)) {
+		combatTextTimer.isActive = false;
 	}
 };
 
@@ -201,7 +342,15 @@ static void GameRender() {
 	DrawTile(dungeon_gate.x, dungeon_gate.y, 8, 9);
 
 	if (orc.zone == player.zone) {
-		DrawTile(orc.x, orc.y, 11, 0);
+		if (orc.isAlive) {
+			DrawTile(orc.x, orc.y, 11, 0);
+		}
+		if (combatTextTimer.isActive) {
+			DrawText(TextFormat("%d", orc.damage), orc.x, orc.y - 10, 9, YELLOW);
+		}
+		if (chest.isAlive) {
+			DrawTile(chest.x, chest.y, 9, 3);
+		}
 	}
 
 	// render player
@@ -214,13 +363,29 @@ static void GameRender() {
 
 	DrawText(TextFormat("Camera Target: (%06.2f, %06.2f", camera.target.x, camera.target.y), 15, 10, 14, YELLOW);
 	DrawText(TextFormat("Camera Zoom: %06.2f", camera.zoom), 15, 30, 14, YELLOW);
+	DrawText(TextFormat("Player Health: %d", player.health), 15, 50, 14, YELLOW);
+	DrawText(TextFormat("Player XP: %d", player.experience), 15, 70, 14, YELLOW);
+	DrawText(TextFormat("Player Money: %d", player.money), 15, 90, 14, YELLOW);
 
+	if (orc.isAlive) {
+		DrawText(TextFormat("Orc Health: %d", orc.health), 15, 110, 14, YELLOW);
+	}
+	
 };
 
 static void GameShutdown() {
 
 	for (int i = 0; i < MAX_TEXTURES; i++) {
 		UnloadTexture(textures[i]);
+	}
+
+	for (int i = 0; i < MAX_SOUNDS; i++) {
+		UnloadSound(sounds[i]);
+	}
+
+	for (int i = 0; i < MAX_MUSIC; i++) {
+		StopMusicStream(music[i]);
+		UnloadMusicStream(music[i]);
 	}
 
 	CloseAudioDevice();
